@@ -18,3 +18,4 @@ crewai-tools
 crewai-adapters
 crewai-tools[tools]
 embedchain
+crewai
