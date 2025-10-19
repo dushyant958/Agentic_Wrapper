@@ -19,3 +19,11 @@ crewai-adapters
 crewai-tools[tools]
 embedchain
 crewai
+pdfplumber
+easyocr
+sentence-transformers
+faiss-cpu
+numpy
+pillow
+python-multipart
+streamlit
