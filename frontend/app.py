@@ -1,5 +1,6 @@
 """
 Streamlit Frontend for Multi-Agent Research Assistant
+Unified Interface with Normal Chat and Agentic Research Modes
 """
 import streamlit as st
 import requests
@@ -7,6 +8,7 @@ from typing import List, Dict
 import time
 import os
 from dotenv import load_dotenv
+from audio_recorder_streamlit import audio_recorder
 
 load_dotenv()
 
@@ -44,8 +46,28 @@ st.markdown("""
         background-color: #F5F5F5;
         border-left: 4px solid #43A047;
     }
+    .research-message {
+        background-color: #FFF3E0;
+        border-left: 4px solid #FF9800;
+    }
     .stButton>button {
         width: 100%;
+    }
+    .mode-badge {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        border-radius: 0.3rem;
+        font-size: 0.8rem;
+        font-weight: bold;
+        margin-left: 0.5rem;
+    }
+    .normal-mode {
+        background-color: #4CAF50;
+        color: white;
+    }
+    .research-mode {
+        background-color: #FF9800;
+        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -57,19 +79,26 @@ if "session_id" not in st.session_state:
     st.session_state.session_id = f"session_{int(time.time())}"
 if "uploaded_files" not in st.session_state:
     st.session_state.uploaded_files = []
-if "rag_enabled" not in st.session_state:
-    st.session_state.rag_enabled = False
+if "mode" not in st.session_state:
+    st.session_state.mode = "normal"
+if "transcribed_text" not in st.session_state:
+    st.session_state.transcribed_text = ""
 
 # Sidebar
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
     
-    # Mode selection
-    mode = st.selectbox(
-        "Select Mode",
-        ["💬 Chat", "🔍 Research", "📄 Document Q&A", "🎤 Voice Transcription"],
-        key="mode_selector"
+    # Mode selection - ONLY 2 OPTIONS
+    st.markdown("### 🎯 Mode Selection")
+    mode = st.radio(
+        "Choose Mode:",
+        ["💬 Normal Chat", "🔬 Agentic Research"],
+        key="mode_selector",
+        help="Normal: Regular chat with RAG | Research: Multi-agent research workflow"
     )
+    
+    # Set mode in session state
+    st.session_state.mode = "normal" if "Normal" in mode else "research"
     
     st.markdown("---")
     
@@ -86,350 +115,266 @@ with st.sidebar:
         "Choose LLM",
         list(available_models.keys()),
         format_func=lambda x: f"{x} - {available_models[x]}",
+        index=0 if st.session_state.mode == "normal" else 1,
         key="model_selector"
     )
     
     st.markdown("---")
     
-    # RAG Settings
-    if mode == "💬 Chat":
-        st.markdown("### 📚 RAG Settings")
-        st.session_state.rag_enabled = st.checkbox(
-            "Use uploaded documents",
-            value=st.session_state.rag_enabled,
-            help="Enable to query uploaded documents"
-        )
-        
-        if st.session_state.rag_enabled:
-            st.info(f"📁 {len(st.session_state.uploaded_files)} documents loaded")
+    # Document Upload Section
+    st.markdown("### 📚 Document Upload")
+    uploaded_files = st.file_uploader(
+        "Upload documents (PDF, Images, TXT)",
+        type=["pdf", "png", "jpg", "jpeg", "txt"],
+        accept_multiple_files=True,
+        key="doc_uploader",
+        help="Upload documents to enable RAG in Normal Chat mode"
+    )
+    
+    # Process uploaded files
+    if uploaded_files:
+        for file in uploaded_files:
+            if file.name not in [f["name"] for f in st.session_state.uploaded_files]:
+                with st.spinner(f"Processing {file.name}..."):
+                    try:
+                        files = {"file": (file.name, file.getvalue(), file.type)}
+                        response = requests.post(f"{API_URL}/upload", files=files)
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            st.session_state.uploaded_files.append({
+                                "name": file.name,
+                                "size": len(file.getvalue()),
+                                "text_length": result["text_length"]
+                            })
+                            st.success(f"✅ {file.name}")
+                        else:
+                            st.error(f"❌ Failed: {file.name}")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+    
+    # Show uploaded files count
+    if st.session_state.uploaded_files:
+        st.info(f"📁 {len(st.session_state.uploaded_files)} documents loaded")
+        with st.expander("View uploaded files"):
+            for file_info in st.session_state.uploaded_files:
+                st.markdown(f"- **{file_info['name']}**")
     
     st.markdown("---")
     
     # System Stats
     st.markdown("### 📊 System Status")
     try:
-        response = requests.get(f"{API_URL}/stats")
+        response = requests.get(f"{API_URL}/stats", timeout=5)
         if response.status_code == 200:
             stats = response.json()
-            st.metric("Documents", stats['rag']['total_documents'])
-            st.metric("Chat Sessions", stats['chat']['active_sessions'])
-            st.success("✅ All systems operational")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Docs", stats['rag']['total_documents'])
+            with col2:
+                st.metric("Sessions", stats['chat']['active_sessions'])
+            st.success("✅ Online")
         else:
-            st.error("❌ Backend unavailable")
+            st.error("❌ Backend issue")
     except:
-        st.error("❌ Cannot connect to backend")
+        st.error("❌ Cannot connect")
     
     st.markdown("---")
     
     # Clear buttons
-    if st.button("🗑️ Clear Chat History", use_container_width=True):
-        st.session_state.chat_history = []
-        requests.delete(f"{API_URL}/chat/{st.session_state.session_id}")
-        st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗑️ Clear Chat", use_container_width=True):
+            st.session_state.chat_history = []
+            requests.delete(f"{API_URL}/chat/{st.session_state.session_id}")
+            st.rerun()
     
-    if st.button("🗑️ Clear Documents", use_container_width=True):
-        requests.post(f"{API_URL}/clear")
-        st.session_state.uploaded_files = []
-        st.session_state.rag_enabled = False
-        st.rerun()
+    with col2:
+        if st.button("🗑️ Clear Docs", use_container_width=True):
+            requests.post(f"{API_URL}/clear")
+            st.session_state.uploaded_files = []
+            st.rerun()
 
 # Main content
 st.markdown('<div class="main-header">🤖 AI Research Assistant</div>', unsafe_allow_html=True)
 
-# ===================== CHAT MODE =====================
-if mode == "💬 Chat":
-    st.markdown("## 💬 Chat with AI")
-    
-    # Display chat history
-    chat_container = st.container()
-    with chat_container:
-        for msg in st.session_state.chat_history:
-            if msg["role"] == "user":
-                st.markdown(f'<div class="chat-message user-message">👤 You: {msg["content"]}</div>', 
-                          unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="chat-message assistant-message">🤖 Assistant: {msg["content"]}</div>', 
-                          unsafe_allow_html=True)
-    
-    # Chat input
-    with st.form("chat_form", clear_on_submit=True):
-        user_input = st.text_input("Type your message...", key="chat_input")
-        col1, col2 = st.columns([3, 1])
-        
-        with col2:
-            submit = st.form_submit_button("Send 📤", use_container_width=True)
-        
-        if submit and user_input:
-            # Add user message to history
-            st.session_state.chat_history.append({
-                "role": "user",
-                "content": user_input
-            })
-            
-            # Show spinner while processing
-            with st.spinner("🤔 Thinking..."):
-                try:
-                    response = requests.post(
-                        f"{API_URL}/chat",
-                        json={
-                            "message": user_input,
-                            "session_id": st.session_state.session_id,
-                            "model": selected_model,
-                            "use_rag": st.session_state.rag_enabled
-                        }
-                    )
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        assistant_message = result["response"]
-                        
-                        # Add assistant message to history
-                        st.session_state.chat_history.append({
-                            "role": "assistant",
-                            "content": assistant_message
-                        })
-                        
-                        # Show context if RAG was used
-                        if result.get("rag_used") and result.get("context"):
-                            with st.expander("📚 Context Used"):
-                                for i, ctx in enumerate(result["context"], 1):
-                                    st.markdown(f"**Context {i}:**\n{ctx[:300]}...")
-                    else:
-                        st.error(f"Error: {response.json().get('detail', 'Unknown error')}")
-                        
-                except Exception as e:
-                    st.error(f"Error connecting to backend: {str(e)}")
-            
-            st.rerun()
+# Mode indicator
+mode_badge_class = "normal-mode" if st.session_state.mode == "normal" else "research-mode"
+mode_text = "Normal Chat Mode" if st.session_state.mode == "normal" else "Agentic Research Mode"
+st.markdown(f'<span class="mode-badge {mode_badge_class}">{mode_text}</span>', unsafe_allow_html=True)
 
-# ===================== RESEARCH MODE =====================
-elif mode == "🔍 Research":
-    st.markdown("## 🔍 Multi-Agent Research")
-    st.info("📝 Enter a research question and let our AI agents conduct comprehensive research for you!")
-    
-    with st.form("research_form"):
-        research_query = st.text_area(
-            "Research Question",
-            placeholder="e.g., What are the latest developments in AI safety and alignment?",
-            height=100
-        )
-        
-        submit_research = st.form_submit_button("🚀 Start Research", use_container_width=True)
-        
-        if submit_research and research_query:
-            with st.spinner("🔬 Research agents are working... This may take a few minutes..."):
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                try:
-                    # Update progress
-                    status_text.text("🔍 Planning research strategy...")
-                    progress_bar.progress(20)
-                    time.sleep(0.5)
-                    
-                    status_text.text("📚 Gathering information from multiple sources...")
-                    progress_bar.progress(40)
-                    
-                    # Call research endpoint
-                    response = requests.post(
-                        f"{API_URL}/research",
-                        json={
-                            "query": research_query,
-                            "model": selected_model
-                        },
-                        timeout=300  # 5 minutes timeout
-                    )
-                    
-                    progress_bar.progress(70)
-                    status_text.text("✅ Verifying information...")
-                    time.sleep(0.5)
-                    
-                    progress_bar.progress(90)
-                    status_text.text("📝 Writing final report...")
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        progress_bar.progress(100)
-                        status_text.text("✅ Research completed!")
-                        
-                        st.success("Research completed successfully!")
-                        
-                        # Display results
-                        st.markdown("### 📊 Research Results")
-                        st.markdown(result["result"])
-                        
-                        # Download button
-                        st.download_button(
-                            label="📥 Download Report",
-                            data=result["result"],
-                            file_name="research_report.md",
-                            mime="text/markdown"
-                        )
-                    else:
-                        st.error(f"Error: {response.json().get('detail', 'Research failed')}")
-                        
-                except requests.Timeout:
-                    st.error("⏰ Research timed out. Please try a simpler query.")
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
+st.markdown("---")
 
-# ===================== DOCUMENT Q&A MODE =====================
-elif mode == "📄 Document Q&A":
-    st.markdown("## 📄 Document Q&A")
-    
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.markdown("### 📤 Upload Documents")
-        uploaded_files = st.file_uploader(
-            "Upload PDF, Images, or Text files",
-            type=["pdf", "png", "jpg", "jpeg", "txt"],
-            accept_multiple_files=True,
-            key="doc_uploader"
-        )
-        
-        if uploaded_files:
-            for file in uploaded_files:
-                if file.name not in [f["name"] for f in st.session_state.uploaded_files]:
-                    with st.spinner(f"Processing {file.name}..."):
-                        try:
-                            files = {"file": (file.name, file.getvalue(), file.type)}
-                            response = requests.post(f"{API_URL}/upload", files=files)
-                            
-                            if response.status_code == 200:
-                                result = response.json()
-                                st.session_state.uploaded_files.append({
-                                    "name": file.name,
-                                    "size": len(file.getvalue()),
-                                    "text_length": result["text_length"]
-                                })
-                                st.success(f"✅ {file.name} uploaded successfully!")
-                            else:
-                                st.error(f"❌ Failed to upload {file.name}")
-                        except Exception as e:
-                            st.error(f"Error: {str(e)}")
-        
-        # Show uploaded files
-        if st.session_state.uploaded_files:
-            st.markdown("### 📁 Uploaded Files")
-            for file_info in st.session_state.uploaded_files:
-                st.markdown(f"- **{file_info['name']}** ({file_info['text_length']} chars)")
-    
-    with col2:
-        st.markdown("### ❓ Ask Questions")
-        
-        if not st.session_state.uploaded_files:
-            st.info("👈 Please upload documents first")
+# Display chat history
+chat_container = st.container()
+with chat_container:
+    for msg in st.session_state.chat_history:
+        if msg["role"] == "user":
+            st.markdown(f'<div class="chat-message user-message">👤 <b>You:</b> {msg["content"]}</div>', 
+                      unsafe_allow_html=True)
         else:
-            with st.form("query_form"):
-                query = st.text_input("Your question about the documents:")
-                k_results = st.slider("Number of relevant chunks", 1, 10, 3)
-                
-                submit_query = st.form_submit_button("🔍 Search", use_container_width=True)
-                
-                if submit_query and query:
-                    with st.spinner("Searching documents..."):
-                        try:
-                            response = requests.post(
-                                f"{API_URL}/query",
-                                json={"query": query, "k": k_results}
-                            )
-                            
-                            if response.status_code == 200:
-                                result = response.json()
-                                
-                                st.markdown("### 💡 Answer")
-                                st.success(result["answer"])
-                                
-                                with st.expander("📚 Relevant Context"):
-                                    for i, ctx in enumerate(result["context"], 1):
-                                        st.markdown(f"**Context {i}:**")
-                                        st.text(ctx)
-                                        st.markdown("---")
-                            else:
-                                st.error(f"Error: {response.json().get('detail')}")
-                        except Exception as e:
-                            st.error(f"Error: {str(e)}")
-
-# ===================== VOICE TRANSCRIPTION MODE =====================
-elif mode == "🎤 Voice Transcription":
-    st.markdown("## 🎤 Voice Transcription")
-    st.info("Upload an audio file to transcribe it to text using Whisper AI")
-    
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.markdown("### 📤 Upload Audio")
-        audio_file = st.file_uploader(
-            "Upload audio file",
-            type=["mp3", "wav", "m4a", "webm", "ogg"],
-            key="audio_uploader"
-        )
-        
-        if audio_file:
-            st.audio(audio_file, format=audio_file.type)
+            # Different styling for research vs normal responses
+            msg_class = "research-message" if msg.get("mode") == "research" else "assistant-message"
+            mode_indicator = "🔬" if msg.get("mode") == "research" else "🤖"
+            st.markdown(f'<div class="chat-message {msg_class}">{mode_indicator} <b>Assistant:</b> {msg["content"]}</div>', 
+                      unsafe_allow_html=True)
             
-            if st.button("🎯 Transcribe", use_container_width=True):
-                with st.spinner("🎤 Transcribing audio..."):
-                    try:
-                        files = {"audio_file": (audio_file.name, audio_file.getvalue(), audio_file.type)}
-                        response = requests.post(f"{API_URL}/transcribe", files=files)
-                        
-                        if response.status_code == 200:
-                            result = response.json()
-                            
-                            st.success("✅ Transcription completed!")
-                            
-                            # Display results
-                            st.markdown("### 📝 Transcription")
-                            st.text_area("Text", result["text"], height=200)
-                            
-                            col_a, col_b = st.columns(2)
-                            with col_a:
-                                st.metric("Language", result["language"].upper())
-                            with col_b:
-                                if result.get("duration"):
-                                    st.metric("Duration", f"{result['duration']:.1f}s")
-                            
-                            # Download button
-                            st.download_button(
-                                label="📥 Download Transcript",
-                                data=result["text"],
-                                file_name="transcript.txt",
-                                mime="text/plain"
-                            )
-                            
-                            # Option to use in chat
-                            if st.button("💬 Use in Chat", use_container_width=True):
-                                st.session_state.chat_history.append({
-                                    "role": "user",
-                                    "content": result["text"]
-                                })
-                                st.info("Transcript added to chat! Switch to Chat mode to continue.")
-                        else:
-                            st.error(f"Error: {response.json().get('detail')}")
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
+            # Show context if available
+            if msg.get("context"):
+                with st.expander(f"📚 Context Used ({len(msg['context'])} sources)"):
+                    for i, ctx in enumerate(msg["context"], 1):
+                        st.markdown(f"**Source {i}:**")
+                        st.text(ctx[:300] + "..." if len(ctx) > 300 else ctx)
+                        st.markdown("---")
+
+st.markdown("---")
+
+# Input area
+st.markdown("### 💬 Your Message")
+
+# Create columns for mic button and text input
+col1, col2 = st.columns([1, 11])
+
+with col1:
+    # Audio recorder button
+    audio_bytes = audio_recorder(
+        text="🎤",
+        recording_color="#e74c3c",
+        neutral_color="#3498db",
+        icon_size="2x",
+        key="audio_recorder"
+    )
+
+# Handle audio transcription
+if audio_bytes and audio_bytes != st.session_state.get("last_audio_bytes"):
+    st.session_state.last_audio_bytes = audio_bytes
+    with st.spinner("🎤 Transcribing audio..."):
+        try:
+            files = {"audio_file": ("recording.wav", audio_bytes, "audio/wav")}
+            response = requests.post(f"{API_URL}/transcribe", files=files, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                st.session_state.transcribed_text = result["text"]
+                st.success(f"✅ Transcribed: {result['text'][:50]}...")
+            else:
+                st.error("❌ Transcription failed")
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+
+# Text input
+user_input = st.text_area(
+    "Type your message or use voice recording:",
+    value=st.session_state.transcribed_text,
+    height=100,
+    key="message_input",
+    placeholder="Ask anything or click the mic button to record..."
+)
+
+# Send button
+col_send1, col_send2, col_send3 = st.columns([8, 2, 2])
+
+with col_send2:
+    if st.button("🗑️ Clear Input", use_container_width=True):
+        st.session_state.transcribed_text = ""
+        st.rerun()
+
+with col_send3:
+    send_button = st.button("📤 Send", use_container_width=True, type="primary")
+
+# Process message
+if send_button and user_input.strip():
+    # Clear transcribed text
+    st.session_state.transcribed_text = ""
     
-    with col2:
-        st.markdown("### ℹ️ Supported Formats")
-        st.markdown("""
-        - **MP3** - Most common format
-        - **WAV** - Uncompressed audio
-        - **M4A** - Apple audio format
-        - **WEBM** - Web audio format
-        - **OGG** - Open-source format
-        
-        **Tips:**
-        - Clear audio = better transcription
-        - Supports multiple languages
-        - Max file size: 25MB
-        """)
+    # Add user message to history
+    st.session_state.chat_history.append({
+        "role": "user",
+        "content": user_input
+    })
+    
+    # Determine if RAG should be used (only in normal mode with documents)
+    use_rag = st.session_state.mode == "normal" and len(st.session_state.uploaded_files) > 0
+    
+    # Show appropriate spinner based on mode
+    spinner_text = "🔬 Research agents working..." if st.session_state.mode == "research" else "🤔 Thinking..."
+    
+    with st.spinner(spinner_text):
+        try:
+            if st.session_state.mode == "research":
+                # Call research endpoint
+                response = requests.post(
+                    f"{API_URL}/research",
+                    json={
+                        "query": user_input,
+                        "model": selected_model
+                    },
+                    timeout=300
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    assistant_message = result["result"]
+                    
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "content": assistant_message,
+                        "mode": "research"
+                    })
+                else:
+                    st.error(f"Research failed: {response.json().get('detail', 'Unknown error')}")
+            
+            else:
+                # Normal chat mode
+                response = requests.post(
+                    f"{API_URL}/chat",
+                    json={
+                        "message": user_input,
+                        "session_id": st.session_state.session_id,
+                        "model": selected_model,
+                        "use_rag": use_rag
+                    },
+                    timeout=60
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    assistant_message = result["response"]
+                    
+                    # Add to history with context if available
+                    message_data = {
+                        "role": "assistant",
+                        "content": assistant_message,
+                        "mode": "normal"
+                    }
+                    
+                    if result.get("rag_used") and result.get("context"):
+                        message_data["context"] = result["context"]
+                    
+                    st.session_state.chat_history.append(message_data)
+                else:
+                    st.error(f"Error: {response.json().get('detail', 'Unknown error')}")
+                    
+        except requests.Timeout:
+            st.error("⏰ Request timed out. Please try again.")
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+    
+    st.rerun()
+
+# Info boxes based on mode
+if st.session_state.mode == "normal":
+    if not st.session_state.uploaded_files:
+        st.info("💡 **Tip:** Upload documents in the sidebar to enable RAG-powered responses!")
+    else:
+        st.success(f"✅ RAG enabled with {len(st.session_state.uploaded_files)} document(s)")
+else:
+    st.warning("🔬 **Research Mode Active:** Responses will use multi-agent research workflow (may take longer)")
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #888;">
-    <p>🤖 Powered by Groq, CrewAI, and Streamlit</p>
+    <p>🤖 Powered by Groq, CrewAI, and Streamlit | Voice: Whisper AI</p>
 </div>
 """, unsafe_allow_html=True)

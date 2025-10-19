@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize FastAPI
-app = FastAPI(title="Research Assistant API", version="1.0.0")
+app = FastAPI(title="Research Assistant API", version="2.0.0")
 
 # Add CORS middleware
 app.add_middleware(
@@ -83,7 +83,7 @@ async def startup_event():
     
     try:
         logger.info("=" * 60)
-        logger.info("Starting Research Assistant API")
+        logger.info("Starting Research Assistant API v2.0")
         logger.info("=" * 60)
         
         # Check if Groq is available
@@ -132,6 +132,7 @@ class ChatRequest(BaseModel):
     session_id: str = "default"
     model: str = "llama-3.1-8b-instant"
     use_rag: bool = False
+    mode: str = "normal"  # NEW: "normal" or "research"
 
 class ChatResponse(BaseModel):
     response: str
@@ -139,6 +140,7 @@ class ChatResponse(BaseModel):
     session_id: str
     rag_used: bool = False
     context: Optional[List[str]] = None
+    mode: str = "normal"  # NEW: indicates which mode was used
 
 class QueryRequest(BaseModel):
     query: str
@@ -177,14 +179,15 @@ async def root():
     """Health check and system status"""
     return {
         "status": "healthy",
-        "message": "Research Assistant API is running",
-        "version": "1.0.0",
+        "message": "Research Assistant API v2.0 is running",
+        "version": "2.0.0",
         "features": {
             "chat": groq_client is not None,
             "rag": True,
             "research": research_crew is not None,
             "transcription": groq_client is not None,
-            "file_upload": True
+            "file_upload": True,
+            "unified_interface": True
         },
         "models": {
             "groq_available": groq_client is not None,
@@ -197,18 +200,19 @@ async def root():
     }
 
 
-# ===================== CHAT ENDPOINT =====================
+# ===================== UNIFIED CHAT ENDPOINT =====================
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
-    Simple chat with LLM, optionally using RAG context
+    Unified chat endpoint supporting both normal chat and research mode
     
     Args:
         message: User message
         session_id: Chat session identifier
         model: LLM model to use
         use_rag: Whether to use RAG context from uploaded documents
+        mode: "normal" for regular chat, "research" for multi-agent research
     """
     try:
         if not groq_client:
@@ -230,63 +234,109 @@ async def chat(request: ChatRequest):
         if request.session_id not in chat_sessions:
             chat_sessions[request.session_id] = []
         
-        # Get RAG context if requested
-        rag_context = None
-        context_list = []
-        if request.use_rag:
-            stats = rag_pipeline.vector_store.get_stats()
-            if stats['total_documents'] > 0:
-                results = rag_pipeline.query(request.message, k=3)
-                if results:
-                    context_list = [text for text, _ in results]
-                    rag_context = "\n\n".join(context_list)
+        # RESEARCH MODE - Use multi-agent workflow
+        if request.mode == "research":
+            if not research_crew:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Research crew not initialized. Please check environment variables."
+                )
+            
+            logger.info(f"Starting research mode for: {request.message}")
+            
+            try:
+                result = research_crew.run_simple_workflow(
+                    user_query=request.message,
+                    research_topics=[request.message]
+                )
+                
+                research_result = str(result)
+                
+                # Store in chat history
+                chat_sessions[request.session_id].append({
+                    "role": "user",
+                    "content": request.message
+                })
+                chat_sessions[request.session_id].append({
+                    "role": "assistant",
+                    "content": research_result
+                })
+                
+                logger.info("Research completed successfully")
+                
+                return ChatResponse(
+                    response=research_result,
+                    model_used=request.model,
+                    session_id=request.session_id,
+                    rag_used=False,
+                    context=None,
+                    mode="research"
+                )
+                
+            except Exception as e:
+                logger.error(f"Research mode error: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Research failed: {str(e)}")
         
-        # Build messages
-        messages = []
-        
-        # Add system message with RAG context if available
-        if rag_context:
-            system_msg = f"You are a helpful assistant. Use the following context to answer the user's question:\n\n{rag_context}"
-            messages.append({"role": "system", "content": system_msg})
+        # NORMAL CHAT MODE
         else:
-            messages.append({
-                "role": "system",
-                "content": "You are a helpful, knowledgeable assistant."
+            # Get RAG context if requested
+            rag_context = None
+            context_list = []
+            if request.use_rag:
+                stats = rag_pipeline.vector_store.get_stats()
+                if stats['total_documents'] > 0:
+                    results = rag_pipeline.query(request.message, k=3)
+                    if results:
+                        context_list = [text for text, _ in results]
+                        rag_context = "\n\n".join(context_list)
+            
+            # Build messages
+            messages = []
+            
+            # Add system message with RAG context if available
+            if rag_context:
+                system_msg = f"You are a helpful assistant. Use the following context to answer the user's question:\n\n{rag_context}"
+                messages.append({"role": "system", "content": system_msg})
+            else:
+                messages.append({
+                    "role": "system",
+                    "content": "You are a helpful, knowledgeable assistant."
+                })
+            
+            # Add chat history (last 10 messages for context)
+            messages.extend(chat_sessions[request.session_id][-10:])
+            
+            # Add current user message
+            messages.append({"role": "user", "content": request.message})
+            
+            # Call Groq API
+            response = groq_client.chat.completions.create(
+                model=request.model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=1024
+            )
+            
+            assistant_message = response.choices[0].message.content
+            
+            # Store in chat history
+            chat_sessions[request.session_id].append({
+                "role": "user",
+                "content": request.message
             })
-        
-        # Add chat history (last 10 messages for context)
-        messages.extend(chat_sessions[request.session_id][-10:])
-        
-        # Add current user message
-        messages.append({"role": "user", "content": request.message})
-        
-        # Call Groq API
-        response = groq_client.chat.completions.create(
-            model=request.model,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1024
-        )
-        
-        assistant_message = response.choices[0].message.content
-        
-        # Store in chat history
-        chat_sessions[request.session_id].append({
-            "role": "user",
-            "content": request.message
-        })
-        chat_sessions[request.session_id].append({
-            "role": "assistant",
-            "content": assistant_message
-        })
-        
-        return ChatResponse(
-            response=assistant_message,
-            model_used=request.model,
-            session_id=request.session_id,
-            rag_used=request.use_rag and len(context_list) > 0,
-            context=context_list if context_list else None
-        )
+            chat_sessions[request.session_id].append({
+                "role": "assistant",
+                "content": assistant_message
+            })
+            
+            return ChatResponse(
+                response=assistant_message,
+                model_used=request.model,
+                session_id=request.session_id,
+                rag_used=request.use_rag and len(context_list) > 0,
+                context=context_list if context_list else None,
+                mode="normal"
+            )
         
     except HTTPException:
         raise
@@ -437,7 +487,7 @@ async def clear_documents():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ===================== RESEARCH ENDPOINT =====================
+# ===================== RESEARCH ENDPOINT (kept for backward compatibility) =====================
 
 @app.post("/research", response_model=ResearchResponse)
 async def research(request: ResearchRequest):
@@ -447,6 +497,9 @@ async def research(request: ResearchRequest):
     Args:
         query: Research question
         model: LLM model to use for agents
+    
+    Note: This endpoint is kept for backward compatibility.
+    The unified /chat endpoint with mode="research" is the preferred method.
     """
     try:
         if not research_crew:
@@ -460,7 +513,7 @@ async def research(request: ResearchRequest):
         # Run the research workflow
         result = research_crew.run_simple_workflow(
             user_query=request.query,
-            research_topics=[request.query]  # Can be expanded to multiple topics
+            research_topics=[request.query]
         )
         
         # Extract the final result
@@ -488,6 +541,7 @@ async def transcribe_audio(audio_file: UploadFile = File(...)):
     """
     Transcribe audio file to text using Whisper
     
+    Supports both file uploads and real-time recordings
     Supported formats: MP3, WAV, M4A, WEBM, OGG
     """
     try:
@@ -498,7 +552,7 @@ async def transcribe_audio(audio_file: UploadFile = File(...)):
             )
         
         filename = audio_file.filename
-        file_extension = filename.split('.')[-1].lower()
+        file_extension = filename.split('.')[-1].lower() if '.' in filename else 'wav'
         
         # Validate audio format
         supported_formats = ['mp3', 'wav', 'm4a', 'webm', 'ogg']
@@ -530,6 +584,8 @@ async def transcribe_audio(audio_file: UploadFile = File(...)):
             
             # Clean up temp file
             os.unlink(temp_file_path)
+            
+            logger.info(f"Transcription completed: {len(transcription.text)} characters")
             
             return TranscriptionResponse(
                 text=transcription.text,

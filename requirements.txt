@@ -1,7 +1,7 @@
 pydantic
 uvicorn
 fastapi
-dotenv
+python-dotenv
 langchain
 langchain-huggingface
 langchain-groq
@@ -27,3 +27,5 @@ numpy
 pillow
 python-multipart
 streamlit
+audio-recorder-streamlit
+requests
