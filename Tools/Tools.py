@@ -1,24 +1,27 @@
 import os
 from dotenv import load_dotenv
 from crewai_tools import ScrapeWebsiteTool, SpiderTool, FirecrawlScrapeWebsiteTool
-from embedchain.config import AppConfig
-from embedchain.embedchain import EmbedChain
+from embedchain import App 
+
 load_dotenv()
 
 class Tools:
     def __init__(self, spider_api_key: str = None, firecrawl_api_key: str = None):
+        # Load environment variables or passed keys
         self.spider_key = spider_api_key or os.getenv("SPIDER_API_KEY")
         self.firecrawl_key = firecrawl_api_key or os.getenv("FIRECRAWL_API_KEY")
         self.hfkey = os.getenv("HF_TOKEN")
 
-       
-        self.embed_config = AppConfig(
-            embedding_model="hkunlp/instructor-xl",  # HuggingFace model
-            hf_api_key=self.hfkey,
-            persist_directory="./vector_store"       
+        # ✅ Create the EmbedChain App directly (new API)
+        self.embedchain = App(
+            config={
+                "embedding_model": "hkunlp/instructor-xl",  # HuggingFace model
+                "hf_api_key": self.hfkey,
+                "persist_directory": "./vector_store"
+            }
         )
-        self.embedchain = EmbedChain(config=self.embed_config)
 
+        # Initialize scraping tools
         self.tool1 = self.scrape_tool()
         self.tool2 = self.firecrawl_tool()
         self.tool3 = self.spider_tool()

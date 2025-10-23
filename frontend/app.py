@@ -39,15 +39,15 @@ st.markdown("""
         margin-bottom: 1rem;
     }
     .user-message {
-        background-color: #E3F2FD;
+        background-color: #BBDEFB;
         border-left: 4px solid #1E88E5;
     }
     .assistant-message {
-        background-color: #F5F5F5;
+        background-color: #E0E0E0;
         border-left: 4px solid #43A047;
     }
     .research-message {
-        background-color: #FFF3E0;
+        background-color: #FFE0B2;
         border-left: 4px solid #FF9800;
     }
     .stButton>button {
