@@ -2,8 +2,8 @@ import os
 from dotenv import load_dotenv
 from crewai import Crew, Process
 from typing import List, Dict, Any, Optional
-from Agents import Agents
-from Tasks import Tasks
+from Agents.Agents import Agents
+from Tasks.Tasks import Tasks
 
 load_dotenv()
 

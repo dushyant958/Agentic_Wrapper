@@ -8,6 +8,7 @@ from typing import List, Dict
 import time
 import os
 from dotenv import load_dotenv
+
 from audio_recorder_streamlit import audio_recorder
 
 load_dotenv()
@@ -17,7 +18,7 @@ API_URL = "http://localhost:8000"
 
 # Page configuration
 st.set_page_config(
-    page_title="AI Research Assistant",
+    page_title="Agentic Wrapper",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -86,13 +87,13 @@ if "transcribed_text" not in st.session_state:
 
 # Sidebar
 with st.sidebar:
-    st.markdown("## ⚙️ Settings")
+    st.markdown("## Settings")
     
     # Mode selection - ONLY 2 OPTIONS
-    st.markdown("### 🎯 Mode Selection")
+    st.markdown("### Mode Selection")
     mode = st.radio(
         "Choose Mode:",
-        ["💬 Normal Chat", "🔬 Agentic Research"],
+        ["Normal Chat", "Agentic Research"],
         key="mode_selector",
         help="Normal: Regular chat with RAG | Research: Multi-agent research workflow"
     )
@@ -103,7 +104,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Model selection
-    st.markdown("### 🤖 Model Selection")
+    st.markdown("### Model Selection")
     available_models = {
         "llama-3.1-8b-instant": "Fast & Efficient",
         "llama-3.3-70b-versatile": "High Quality",
@@ -122,7 +123,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Document Upload Section
-    st.markdown("### 📚 Document Upload")
+    st.markdown("### Document Upload")
     uploaded_files = st.file_uploader(
         "Upload documents (PDF, Images, TXT)",
         type=["pdf", "png", "jpg", "jpeg", "txt"],
@@ -155,7 +156,7 @@ with st.sidebar:
     
     # Show uploaded files count
     if st.session_state.uploaded_files:
-        st.info(f"📁 {len(st.session_state.uploaded_files)} documents loaded")
+        st.info(f" {len(st.session_state.uploaded_files)} documents loaded")
         with st.expander("View uploaded files"):
             for file_info in st.session_state.uploaded_files:
                 st.markdown(f"- **{file_info['name']}**")
@@ -163,7 +164,7 @@ with st.sidebar:
     st.markdown("---")
     
     # System Stats
-    st.markdown("### 📊 System Status")
+    st.markdown("### System Status")
     try:
         response = requests.get(f"{API_URL}/stats", timeout=5)
         if response.status_code == 200:
@@ -184,19 +185,19 @@ with st.sidebar:
     # Clear buttons
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🗑️ Clear Chat", use_container_width=True):
+        if st.button("Clear Chat", use_container_width=True):
             st.session_state.chat_history = []
             requests.delete(f"{API_URL}/chat/{st.session_state.session_id}")
             st.rerun()
     
     with col2:
-        if st.button("🗑️ Clear Docs", use_container_width=True):
+        if st.button("Clear Docs", use_container_width=True):
             requests.post(f"{API_URL}/clear")
             st.session_state.uploaded_files = []
             st.rerun()
 
 # Main content
-st.markdown('<div class="main-header">🤖 AI Research Assistant</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">Agentic Wrapper</div>', unsafe_allow_html=True)
 
 # Mode indicator
 mode_badge_class = "normal-mode" if st.session_state.mode == "normal" else "research-mode"
@@ -230,7 +231,7 @@ with chat_container:
 st.markdown("---")
 
 # Input area
-st.markdown("### 💬 Your Message")
+st.markdown("### Your Message")
 
 # Create columns for mic button and text input
 col1, col2 = st.columns([1, 11])

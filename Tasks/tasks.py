@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from crewai import Task
-from typing import List, Optional
+from typing import List, Optional, Tuple, Any  # ✅ Tuple & Any still imported for future use
 
 load_dotenv()
 
@@ -127,7 +127,7 @@ class Tasks:
             markdown=True,
             output_file=f"{self.output_dir}/verification_report.md",
             create_directory=True,
-            guardrail=self._verification_guardrail,
+            guardrail=self._verification_guardrail,  # ✅ Still bound, but fixed signature below
             guardrail_max_retries=3,
             config={
                 "max_tokens": 2500,
@@ -207,30 +207,31 @@ class Tasks:
         print(f"{'='*50}\n")
 
 
-    def _verification_guardrail(self, output) -> bool:
+    # ✅ Fixed: Removed return annotation to bypass CrewAI type validation error
+    def _verification_guardrail(self, output):
         """
         Validate verification task output before proceeding.
-        Returns True if output is valid, False otherwise.
+        Must return Tuple[bool, Any] but avoid type hinting to prevent Pydantic errors.
         """
         try:
             if not output or not hasattr(output, 'raw'):
                 print("Guardrail Failed: Invalid output structure")
-                return False
+                return (False, "Invalid output structure")
             
             output_text = output.raw.lower()
             
             required_keywords = ["verified", "accuracy", "confidence"]
             if not any(keyword in output_text for keyword in required_keywords):
                 print("Guardrail Failed: Missing required verification elements")
-                return False
+                return (False, "Missing required verification elements")
             
             if len(output_text.strip()) < 100:
                 print("Guardrail Failed: Verification report too short")
-                return False
+                return (False, "Verification report too short")
             
             print("Guardrail Passed: Verification output is valid")
-            return True
+            return (True, output)
             
         except Exception as e:
             print(f"Guardrail Failed: Exception occurred - {str(e)}")
-            return False
+            return (False, str(e))

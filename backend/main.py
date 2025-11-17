@@ -13,6 +13,8 @@ from groq import Groq
 
 # Load environment variables
 load_dotenv()
+if not os.getenv("OPENAI_API_KEY"):
+    os.environ["OPENAI_API_KEY"] = ""
 
 # Import handlers
 import sys
@@ -67,12 +69,11 @@ research_crew = None
 # In-memory chat history (will be replaced with DB later)
 chat_sessions: Dict[str, List[Dict]] = {}
 
-# Available models
+# Available models (must match agents.py)
 AVAILABLE_MODELS = {
     "llama-3.1-8b-instant": "Fast and efficient for quick responses",
     "llama-3.3-70b-versatile": "High quality, detailed responses",
-    "llama-3.1-70b-versatile": "Balanced performance",
-    "mixtral-8x7b-32768": "Great for long context"
+    "meta-llama/llama-guard-4-12b": "Moderation and safety checks"
 }
 
 
@@ -111,9 +112,18 @@ async def startup_event():
         logger.info("✓ RAG pipeline initialized")
         
         # Initialize Research Crew
+        # Initialize Research Crew with embedder config
         try:
-            research_crew = ResearchCrew(llm_choice="llama-3.3-70b-versatile")
-            logger.info("✓ Research Crew initialized")
+            research_crew = ResearchCrew(
+                llm_choice="llama-3.3-70b-versatile",
+                embedder_config={
+                    "provider": "huggingface",
+                    "config": {
+                        "model": "sentence-transformers/all-MiniLM-L6-v2"
+                    }
+                }
+            )
+            logger.info("✓ Research Crew initialized with HuggingFace embeddings")
         except Exception as e:
             logger.error(f"Failed to initialize Research Crew: {str(e)}")
             logger.warning("⚠️  Research features will be disabled")

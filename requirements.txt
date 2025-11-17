@@ -1,31 +1,53 @@
-pydantic
-uvicorn
-fastapi
-python-dotenv
-langchain
-langchain-huggingface
-langchain-groq
-langchain-openai
-langchain-llm
-langchain-ollama
-langchain-aws
-langchain-chroma
-langchain-community
-langchain-tools
-groq
-crewai
-crewai-tools
-crewai-adapters
-crewai-tools[tools]
-embedchain
-crewai
-pdfplumber
-easyocr
-sentence-transformers
-faiss-cpu
-numpy
-pillow
-python-multipart
-streamlit
-audio-recorder-streamlit
-requests
+# Core dependencies (install first)
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# LangChain ecosystem (specific compatible versions)
+langchain-core==0.2.23
+langchain-community==0.2.10
+langchain-text-splitters==0.2.2
+langchain==0.2.11
+langchain-openai==0.1.17
+langchain-groq==0.1.6
+
+# CrewAI and related
+crewai==0.28.8
+crewai-tools==0.4.26
+
+# Embedchain (after LangChain)
+embedchain==0.1.119
+
+# Vector stores and embeddings
+faiss-cpu==1.7.4
+sentence-transformers==2.3.1
+chromadb==0.4.22
+
+# OCR and document processing
+easyocr==1.7.0
+pdfplumber==0.10.3
+PyPDF2==3.0.1
+pdf2image==1.16.3
+Pillow==10.1.0
+
+# Web scraping tools
+beautifulsoup4==4.12.2
+lxml==5.1.0
+requests==2.31.0
+
+# API frameworks
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Streamlit
+streamlit==1.31.0
+streamlit-audio-recorder==0.0.8
+
+# Groq API
+groq==0.4.2
+
+# Additional utilities
+numpy==1.24.3
+pandas==2.1.4
+tiktoken==0.5.2
